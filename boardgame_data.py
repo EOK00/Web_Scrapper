@@ -29,38 +29,58 @@ driver.implicitly_wait(10)
 game_data = []
 
 # 수집 데이터 개수 제한
-max_games = 2
+# max_games_per_page = 5
+num_pages=5
 
-# 모든 게임의 링크를 먼저 수집
-games = driver.find_elements(By.XPATH, '//tr[contains(@id, "row_")]')[:max_games]
-game_link = []
+# URL을 생성하는 함수
+def generate_page_url(base_url, page_number):
+    return f"{base_url}/page/{page_number}"
 
-for game in games:
-    try:
-        title_tag = game.find_element(By.CLASS_NAME, 'primary')
-        title = title_tag.text.strip()
-        link = title_tag.get_attribute('href')
-        release = game.find_element(By.CSS_SELECTOR, '.smallerfont.dull').text.strip()
-        release_year = re.search(r'\d{4}', release).group()
-        geek_rating = game.find_element(By.XPATH, '/html/body/div[2]/main/div[2]/div/div[1]/div/div/div[2]/div[3]/table/tbody/tr[2]/td[4]').text.strip()
-        num_voters = game.find_element(By.XPATH, '/html/body/div[2]/main/div[2]/div/div[1]/div/div/div[2]/div[3]/table/tbody/tr[2]/td[6]').text.strip()
+# 보드게임 기본 데이터 수집 함수
+def collect_page_data(base_url, page_number):
+    page_url = generate_page_url(base_url, page_number)
+    driver.get(page_url)
+    driver.implicitly_wait(10)
+    # 모든 게임의 링크를 먼저 수집
+    games = driver.find_elements(By.XPATH, '//tr[contains(@id, "row_")]')#[:max_games_per_page]
+    game_link = []
+
+    for game in games:
+        try:
+            title_tag = game.find_element(By.CLASS_NAME, 'primary')
+            title = title_tag.text.strip()
+            link = title_tag.get_attribute('href')
+            release = game.find_element(By.CSS_SELECTOR, '.smallerfont.dull').text.strip()
+            release_year = re.search(r'\d{4}', release).group()
+            geek_rating = game.find_element(By.XPATH, './/td[@class="collection_bggrating"][1]').text.strip()
+            num_voters = game.find_element(By.XPATH, './/td[@class="collection_bggrating"][3]').text.strip()
 
 
-        game_link.append({
-            'title' : title,
-            'release' : release_year,
-            'geek_rating' : geek_rating,
-            'num_voters' : num_voters,
-            'link' : link
-        })
-    except Exception as e:
-        print(f"Error collectiong main page data: {e}")
+            game_link.append({
+                'title' : title,
+                'release' : release_year,
+                'geek_rating' : geek_rating,
+                'num_voters' : num_voters,
+                'link' : link
+            })
+        except Exception as e:
+            print(f"Error collectiong main page data: {e}")
 
-for game in game_link:
+    return game_link
+
+# 상세 페이지 데이터 수집 함수
+def collect_detail_data(game):
     driver.get(game['link'])
     driver.implicitly_wait(10)
+
+    try:
+        community_players = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "/html/body/div[2]/main/div[2]/div/div[1]/div[2]/ng-include/div/ng-include/div/div[2]/div[2]/div[2]/gameplay-module/div/div/ul/li[1]/div[2]/span/button/span[2]"))
+        ).text
+        community_players = community_players.replace('–', '~')  # '-'를 '~'로 대체
+    except:
+        best_players = 'N/A'
     
-    # 추가 데이터 수집
     try:
         best_players = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, "/html/body/div[2]/main/div[2]/div/div[1]/div[2]/ng-include/div/ng-include/div/div[2]/div[2]/div[2]/gameplay-module/div/div/ul/li[1]/div[2]/span/button/span[3]"))
@@ -84,10 +104,19 @@ for game in game_link:
         'Title': game['title'],
         'Release': game['release'],
         'Geek_Rating': game['geek_rating'],
+        'Num_Voters': game['num_voters'],
+        'Community_Players': community_players,
         'Best_Players': best_players,
         'Playing _Time': playing_time,
         'Link': game['link']
     })
+
+# 페이지를 반복하며 데이터 수집
+base_url = "https://boardgamegeek.com/browse/boardgame"
+for page_number in range(1,  num_pages + 1):    # 페이지 조정 가능
+    game_link = collect_page_data(base_url, page_number)
+    for game in game_link:
+        collect_detail_data(game)
 
 # 웹드라이버 종료
 driver.quit()
